@@ -1,0 +1,233 @@
+import * as React from 'react'
+import { shallow, mount } from 'enzyme'
+import { Value } from 'react-powerplug'
+
+import { adopt, Adopt } from './'
+
+test('return one component with children props as function', () => {
+  interface RenderProps {
+    foo: { value: string }
+  }
+
+  const Composed = adopt<RenderProps>({
+    foo: <Value initial="foo" />,
+  })
+
+  const result = mount(
+    <Composed>{({ foo }: any) => <div>{foo.value}</div>}</Composed>
+  )
+  const { children } = result.props()
+
+  expect(children).toBeDefined()
+  expect(typeof children).toBe('function')
+})
+
+test('rendering children component', () => {
+  interface RenderProps {
+    foo: { value: string }
+    bar: { value: string }
+  }
+
+  interface Props {
+    tor: string
+  }
+
+  const Composed = adopt<RenderProps, Props>({
+    foo: ({ tor, render }) => <Value initial={tor + 'foo'}>{render}</Value>,
+    bar: ({ tor, render }) => <Value initial={tor + 'bar'}>{render}</Value>,
+  })
+
+  const result = shallow(
+    <Composed tor="tor">
+      {({ foo, bar }) => (
+        <div>
+          <div>{foo.value}</div>
+          <div>{bar.value}</div>
+        </div>
+      )}
+    </Composed>
+  )
+
+  expect(result.children().length).toBe(1)
+  expect(result.html()).toBe('<div><div>torfoo</div><div>torbar</div></div>')
+})
+
+test('using a render prop on composed component', () => {
+  const Composed = adopt({
+    foo: <Value initial="foo" />,
+  })
+
+  const result = shallow(
+    <Composed render={({ foo }: any) => <div>{foo.value}</div>} />
+  )
+
+  expect(result.children().length).toBe(1)
+  expect(result.html()).toBe('<div>foo</div>')
+})
+
+test('passing a function', () => {
+  const Foo = ({ children }: any) => children('foo')
+  const foo = jest.fn(({ render }) => <Foo>{render}</Foo>)
+  const children = jest.fn(() => null)
+  const Composed = adopt({ foo })
+
+  mount(<Composed>{children}</Composed>)
+
+  expect(foo).toHaveBeenCalled()
+  expect(children).toHaveBeenCalledWith({ foo: 'foo' })
+})
+
+test('passing a function changing the render prop on mapper', () => {
+  const Foo = ({ render }: any) => render('foo')
+
+  const foo = jest.fn(({ render }) => <Foo render={render} />)
+  const children = jest.fn(() => null)
+  const Composed = adopt({ foo })
+
+  mount(<Composed>{children}</Composed>)
+
+  expect(foo).toHaveBeenCalled()
+  expect(children).toHaveBeenCalledWith({ foo: 'foo' })
+})
+
+test('should provide a function mapper with all previous render prop results', () => {
+  const Foo = ({ children }: any) => children('foo')
+  const Bar = ({ children }: any) => children('bar')
+  const bar = jest.fn(({ render }) => <Bar>{render}</Bar>)
+  const children = jest.fn(() => null)
+
+  interface RenderProps {
+    foo: 'foo'
+    bar: 'bar'
+  }
+
+  const Composed = adopt<RenderProps>({
+    foo: <Foo />,
+    bar,
+  })
+
+  mount(<Composed>{children}</Composed>)
+
+  expect(bar.mock.calls[0][0]).toHaveProperty('foo', 'foo')
+  expect(children).toHaveBeenCalledWith({ foo: 'foo', bar: 'bar' })
+})
+
+test('should provide mapper functions with Composed component props', () => {
+  const Foo = ({ children }: any) => children('foo')
+  const foo = jest.fn(({ render }) => <Foo>{render}</Foo>)
+  const children = jest.fn(() => null)
+
+  interface RenderProps {
+    foo: string
+  }
+
+  interface Props {
+    bar: string
+  }
+
+  const Composed = adopt<RenderProps, Props>({
+    foo,
+  })
+
+  mount(<Composed bar="bar">{children}</Composed>)
+
+  expect(foo.mock.calls[0][0]).toHaveProperty('bar', 'bar')
+  expect(children).toHaveBeenCalledWith({ foo: 'foo' })
+})
+
+test('throw with a wrong value on mapper', () => {
+  expect(() => {
+    const Composed = adopt({ foo: 'helo' } as any)
+    return shallow(<Composed>{(props: any) => <div>foo</div>}</Composed>)
+  }).toThrowError(
+    'The render props object mapper just accept valid elements as value'
+  )
+})
+
+test('inline composition using <Adopt> component', () => {
+  const Foo = ({ children }: any) => children('foo')
+  const children = jest.fn(({ foo }) => <div>{foo}</div>)
+
+  const mapper = {
+    foo: <Foo />,
+  }
+
+  const element = <Adopt mapper={mapper}>{children}</Adopt>
+
+  mount(element)
+  expect(children).toHaveBeenCalledWith({ foo: 'foo' })
+
+  const result = shallow(element)
+
+  expect(result.children().length).toBe(1)
+  expect(result.html()).toBe('<div>foo</div>')
+})
+
+test('mapping props as second parameter of adopt()', () => {
+  const children = jest.fn(() => null)
+
+  const Composed = adopt(
+    {
+      foo: <Value initial="foo" />,
+      bar: <Value initial="bar" />,
+    },
+    ({ foo, bar }) => ({
+      foobar: foo.value + bar.value,
+    })
+  )
+
+  mount(<Composed>{children}</Composed>)
+
+  expect(children).toHaveBeenCalledWith({ foobar: 'foobar' })
+})
+
+test('mapping props as prop of <Adopt />', () => {
+  const children = jest.fn(() => null)
+
+  const mapper = {
+    foo: <Value initial="foo" />,
+    bar: <Value initial="bar" />,
+  }
+
+  const mapProps = ({ foo, bar }: any) => ({
+    foobar: foo.value + bar.value,
+  })
+
+  mount(
+    <Adopt mapper={mapper} mapProps={mapProps}>
+      {children}
+    </Adopt>
+  )
+
+  expect(children).toHaveBeenCalledWith({ foobar: 'foobar' })
+})
+
+test('hoisting non-static react methods from mapper values', () => {
+  interface GreeterProps {
+    name: string
+    render?: (name: string) => JSX.Element
+  }
+
+  class Greeter extends React.Component<GreeterProps> {
+    public static sayHello = (name: string): string => `Hello ${name}`
+
+    public render(): any {
+      const { render } = this.props
+      return render && typeof render === 'function' && render(`Hello John`)
+    }
+  }
+
+  const getHelloFromStatic = jest.fn((value: string) => value)
+  const children = jest.fn(() => null)
+
+  const Composed: any = adopt({
+    name: ({ render }) => render('John'),
+    greeter: Greeter,
+  })
+
+  mount(<Composed>{children}</Composed>)
+  getHelloFromStatic(Composed.sayHello('John'))
+
+  expect(getHelloFromStatic).toHaveBeenCalledWith('Hello John')
+  expect(children).toHaveBeenCalledWith({ greeter: 'Hello John', name: 'John' })
+})
